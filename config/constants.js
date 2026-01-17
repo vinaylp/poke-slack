@@ -18,8 +18,7 @@ const logger = require('../utils/logger');
  */
 const REQUIRED_ENV_VARS = [
   'SLACK_BOT_TOKEN',
-  'SLACK_MONITOR_CHANNELS',
-  'POKE_WEBHOOK_URL'
+  'SLACK_MONITOR_CHANNELS'
 ];
 
 /**
@@ -78,27 +77,7 @@ function validateConfig() {
     logger.info(`Monitoring ${channelList.length} channel(s): ${channelList.join(', ')}`);
   }
 
-  // Validate POKE_WEBHOOK_URL format
-  const webhookUrl = process.env.POKE_WEBHOOK_URL;
-  try {
-    new URL(webhookUrl);
-    logger.info(`Poke webhook URL configured: ${webhookUrl}`);
-  } catch (error) {
-    throw new Error(`Invalid POKE_WEBHOOK_URL: ${webhookUrl}. Must be a valid URL.`);
-  }
-
-  // Log optional configuration
-  if (process.env.POKE_API_KEY) {
-    logger.info('Poke API key configured (authentication enabled)');
-  } else {
-    logger.info('No Poke API key configured (authentication disabled)');
-  }
-
-  if (process.env.CRON_SECRET) {
-    logger.info('Cron secret configured (cron endpoint protected)');
-  } else {
-    logger.warn('No cron secret configured - cron endpoint is unprotected!');
-  }
+  // MCP-based integration - no webhook URL needed
 
   logger.info('Configuration validation complete');
 }
