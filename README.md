@@ -158,12 +158,21 @@ Expected response:
 
 ### Manual Sync (Testing)
 
-You can manually trigger a sync for testing:
+You can manually trigger a sync for testing using either endpoint:
 
+**Option 1: Cron endpoint**
 ```bash
 curl -X POST https://your-app.vercel.app/api/cron/sync \
   -H "Authorization: Bearer your-cron-secret"
 ```
+
+**Option 2: Trigger endpoint (for external services)**
+```bash
+curl -X POST https://your-app.vercel.app/api/trigger \
+  -H "Authorization: Bearer your-cron-secret"
+```
+
+Both endpoints perform the same function - use `/api/trigger` when setting up external cron services.
 
 ## Configuration
 
@@ -179,28 +188,75 @@ curl -X POST https://your-app.vercel.app/api/cron/sync \
 | `LOG_LEVEL` | No | `info` | Logging level: `debug`, `info`, `warn`, `error` |
 | `NODE_ENV` | No | `production` | Environment: `development` or `production` |
 
-### Cron Schedule
+### Sync Frequency Options
 
-The sync frequency is configured in `vercel.json`:
+You have two options for running the integration:
 
+#### Option 1: Vercel Daily Cron (Included with Hobby Plan)
+
+Vercel Hobby plan ($20/month) includes daily cron jobs. The integration is configured to run once per day at 7:30 AM.
+
+Configured in `vercel.json`:
 ```json
 {
   "crons": [
     {
       "path": "/api/cron/sync",
-      "schedule": "*/5 * * * *"  // Every 5 minutes
+      "schedule": "30 7 * * *"  // Every day at 7:30 AM
     }
   ]
 }
 ```
 
-Cron syntax: `minute hour day month dayofweek`
+**Pros:**
+- ✅ Included with Hobby plan (no extra cost)
+- ✅ Automatic, zero maintenance
+- ✅ Reliable Vercel infrastructure
+
+**Cons:**
+- ⚠️ Limited to once per day
+- ⚠️ Fixed schedule (7:30 AM)
+
+**Change the schedule:**
+Edit `vercel.json` and redeploy. Cron syntax: `minute hour day month dayofweek`
 
 Examples:
-- `*/5 * * * *` - Every 5 minutes
-- `*/15 * * * *` - Every 15 minutes
-- `0 * * * *` - Every hour
-- `0 9-17 * * 1-5` - Every hour, 9am-5pm, Mon-Fri
+- `0 9 * * *` - Every day at 9:00 AM
+- `30 14 * * *` - Every day at 2:30 PM
+- `0 9 * * 1-5` - Weekdays at 9:00 AM
+
+#### Option 2: External Trigger (For More Frequent Syncs)
+
+For syncs more than once per day, use an external cron service to trigger the `/api/trigger` endpoint.
+
+**Setup with cron-job.org (Free):**
+
+1. Sign up at https://cron-job.org
+2. Create new cron job
+3. **URL**: `https://your-app.vercel.app/api/trigger`
+4. **Method**: POST
+5. **Headers**: Add `Authorization: Bearer YOUR_CRON_SECRET`
+6. **Schedule**: Every 5 minutes, hourly, etc.
+
+**Other external services:**
+- [EasyCron](https://www.easycron.com/) - Free tier available
+- [Cronitor](https://cronitor.io/) - Monitoring + scheduling
+- [GitHub Actions](https://github.com/features/actions) - Free for public repos
+
+**Test manually:**
+```bash
+curl -X POST https://your-app.vercel.app/api/trigger \
+  -H "Authorization: Bearer your-cron-secret"
+```
+
+**Pros:**
+- ✅ Sync as frequently as needed (every 5 min, hourly, etc.)
+- ✅ Flexible scheduling
+- ✅ Free tier options available
+
+**Cons:**
+- ⚠️ Requires external service setup
+- ⚠️ One more thing to maintain
 
 ### Getting Channel IDs
 
