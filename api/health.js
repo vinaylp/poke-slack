@@ -17,7 +17,7 @@
  */
 
 const logger = require('../utils/logger');
-const { getMonitoredChannels, getMonitorEmoji } = require('../config/constants');
+const { getMonitoredChannels } = require('../config/constants');
 
 /**
  * Health Check Handler
@@ -36,7 +36,6 @@ module.exports = async (req, res) => {
   try {
     // Get configuration status
     const monitoredChannels = getMonitoredChannels();
-    const monitorEmoji = getMonitorEmoji();
 
     // Determine overall health status
     // The service is healthy if configuration is valid
@@ -67,7 +66,6 @@ module.exports = async (req, res) => {
       configuration: {
         monitoredChannelsCount: monitoredChannels.length,
         monitoredChannels: monitoredChannels, // Channel IDs are not sensitive
-        monitorEmoji: monitorEmoji,
         slackConfigured: !!process.env.SLACK_BOT_TOKEN,
         pokeConfigured: !!process.env.POKE_WEBHOOK_URL,
         authenticationEnabled: !!process.env.POKE_API_KEY
