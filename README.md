@@ -561,3 +561,4 @@ Built with:
 - [Vercel Serverless Functions](https://vercel.com/docs/functions)
 - [Vercel Cron Jobs](https://vercel.com/docs/cron-jobs)
 - Node.js
+# Trigger redeploy for environment variable update
