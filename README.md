@@ -1,88 +1,81 @@
-# Slack-to-Poke Integration
+# Slack MCP Server for Poke
 
-A serverless integration that automatically polls Slack channels on a schedule and forwards new messages to Poke via webhook. Built with Node.js and deployed on Vercel with Vercel Cron.
+A lightweight Model Context Protocol (MCP) server that enables Poke to pull Slack messages for AI-powered inbox triage. Built with Node.js and deployed on Vercel.
+
+## Overview
+
+This MCP server acts as a bridge between Slack and Poke, allowing Poke's AI to intelligently triage Slack messages alongside your emails. Perfect for teams working across different timezones who need to stay on top of important Slack conversations.
 
 ## Features
 
-- **Automatic Polling**: Runs every 5 minutes (configurable) to check for new messages
-- **Smart State Tracking**: Tracks last processed timestamp per channel to avoid duplicates
-- **Rich Context**: Enriches messages with user information (name, email, avatar)
-- **Secure**: API key authentication for both Poke webhook and cron endpoint
-- **Serverless**: Deploys to Vercel with zero infrastructure management
-- **Robust Error Handling**: Retry logic with exponential backoff for Poke webhooks
-- **Thread-Aware**: Identifies replies and includes parent thread context
+- **MCP Protocol** - Modern pull-based integration using Model Context Protocol
+- **On-Demand Fetching** - Poke pulls messages when needed (no polling or webhooks)
+- **Multi-Channel Monitoring** - Monitor multiple Slack channels simultaneously
+- **Rich Context** - Enriches messages with user info (name, email, avatar) and channel context
+- **Smart Filtering** - Poke's AI learns to surface important messages and filter noise
+- **Thread-Aware** - Retrieves complete thread conversations with full context
+- **Serverless** - Deployed on Vercel with zero infrastructure management
 
 ## Architecture
 
 ```
-┌──────────────┐         ┌──────────────────┐         ┌──────────┐
-│ Vercel Cron  │ Trigger │     Serverless   │ Webhook │   Poke   │
-│ (every 5min) │────────▶│    Function      │────────▶│          │
-└──────────────┘         └──────────────────┘         └──────────┘
-                                 │
-                                 ▼
-                         ┌──────────────────┐
-                         │  Slack Web API   │
-                         │ (fetch messages) │
-                         └──────────────────┘
-                                 │
-                                 ▼
-                         ┌──────────────────┐
-                         │  State Manager   │
-                         │ (last timestamp) │
-                         └──────────────────┘
+Poke (AI Inbox)
+    ↓
+    [Pulls on-demand via MCP]
+    ↓
+MCP Server (Vercel Serverless)
+    ↓
+Slack API
+    ↓
+Your Slack Channels
 ```
 
-## How It Works
+### How It Works
 
-1. **Vercel Cron triggers** the sync function every 5 minutes
-2. **State manager** retrieves the last processed timestamp for each channel
-3. **Message poller** fetches new messages from Slack since last sync
-4. **User enrichment** adds profile data (name, email, avatar) to each message
-5. **JSON formatting** structures the data for Poke's webhook endpoint
-6. **Webhook delivery** sends messages to Poke with retry logic
-7. **State update** saves the latest timestamp for next sync
+1. **Poke connects** to the MCP server when checking for updates
+2. **MCP server** fetches recent messages from monitored Slack channels
+3. **Messages are enriched** with user and channel metadata
+4. **Poke's AI** triages messages alongside emails
+5. **You get notified** via iMessage for important items
 
-## Prerequisites
+### Checking Schedule
 
-- **Slack workspace** with admin access to create apps
-- **Poke webhook endpoint** to receive message data
-- **Vercel account** (Hobby or Pro plan for Cron support)
-- **Node.js 18+** for local development
+Poke pulls Slack messages:
+- During morning briefing (~7:30 AM)
+- Every 3-4 hours throughout the day
+- Immediately when you ask Poke to check
+- Instantly for high-priority messages (@mentions, urgent keywords)
 
 ## Quick Start
+
+### Prerequisites
+
+- **Slack workspace** with admin access
+- **Poke account** (https://poke.com)
+- **Vercel account** (free Hobby plan works)
+- **Node.js 18+** for local development (optional)
 
 ### 1. Clone and Install
 
 ```bash
-cd slack-poke-integration
+git clone https://github.com/vinaylp/v40.git
+cd v40
 npm install
 ```
 
-### 2. Configure Environment Variables
+### 2. Create Slack App
 
-```bash
-# Copy the example environment file
-cp .env.example .env
-
-# Edit .env with your actual credentials
-nano .env  # or use your preferred editor
-```
-
-Required variables:
-- `SLACK_BOT_TOKEN` - From Slack app OAuth page
-- `SLACK_MONITOR_CHANNELS` - Comma-separated channel IDs
-- `POKE_WEBHOOK_URL` - Your Poke endpoint URL
-- `CRON_SECRET` - Random secret for securing cron endpoint
-
-### 3. Create Slack App
-
-1. Go to [https://api.slack.com/apps](https://api.slack.com/apps)
+1. Go to https://api.slack.com/apps
 2. Click **"Create New App"** → **"From scratch"**
-3. Name it **"Poke Integration"** and select your workspace
-4. Configure OAuth & Permissions (see detailed instructions below)
+3. Name it (e.g., "Poke Integration") and select your workspace
+4. Navigate to **OAuth & Permissions** and add these Bot Token Scopes:
+   - `channels:history` - Read public channel messages
+   - `channels:read` - View channel information
+   - `users:read` - View user information
+   - `users:read.email` - View user email addresses
+5. **Install to Workspace** and copy the **Bot User OAuth Token**
 
-### 4. Deploy to Vercel
+### 3. Deploy to Vercel
 
 ```bash
 # Install Vercel CLI
@@ -91,55 +84,185 @@ npm install -g vercel
 # Login to Vercel
 vercel login
 
-# Set environment variables in Vercel
-vercel env add SLACK_BOT_TOKEN
-vercel env add SLACK_MONITOR_CHANNELS
-vercel env add POKE_WEBHOOK_URL
-vercel env add CRON_SECRET
-vercel env add POKE_API_KEY  # if needed
+# Set environment variables
+vercel env add SLACK_BOT_TOKEN        # Your Bot OAuth Token
+vercel env add SLACK_MONITOR_CHANNELS # Comma-separated channel IDs (e.g., C123,C456)
 
-# Deploy
+# Deploy to production
 vercel --prod
 ```
 
-### 5. Configure Slack App (Detailed Steps)
-
-#### OAuth & Permissions
-
-Navigate to **OAuth & Permissions** and add these Bot Token Scopes:
-
-- `channels:history` - Read messages in public channels
-- `channels:read` - View basic channel information
-- `users:read` - View user information
-- `users:read.email` - View user email addresses (optional but recommended)
-
-**Install the app to your workspace** and copy the **Bot User OAuth Token** to your Vercel environment as `SLACK_BOT_TOKEN`.
-
-#### Invite Bot to Channels
+### 4. Get Channel IDs
 
 For each channel you want to monitor:
 
-1. Open the channel in Slack
-2. Type `/invite @Poke Integration` (or whatever you named your app)
-3. The bot must be in the channel to read messages
+1. Right-click the channel in Slack
+2. Select **"View channel details"**
+3. Scroll to bottom and copy the **Channel ID** (starts with C...)
+4. Add all channel IDs to `SLACK_MONITOR_CHANNELS`, comma-separated
 
-## Usage
+### 5. Invite Bot to Channels
 
-### Monitoring Channels
+In each monitored channel, type:
 
-Once deployed, the integration automatically:
+```
+/invite @YourBotName
+```
 
-1. Polls monitored channels every 5 minutes
-2. Fetches new messages since last sync
-3. Sends them to Poke webhook
-4. Updates state for next sync
+### 6. Connect to Poke
 
-### Checking Health
+1. Open Poke app
+2. Go to **Integrations** → **Custom Integrations**
+3. Click **"Create"**
+4. Enter:
+   - **Name**: `Slack`
+   - **Server URL**: `https://your-app.vercel.app/api/mcp-http`
+   - **API Key**: Leave empty
+5. Click **"Create Integration"**
 
-Visit your health check endpoint to verify the integration is working:
+## Configuration
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `SLACK_BOT_TOKEN` | Yes | Bot User OAuth Token from Slack app |
+| `SLACK_MONITOR_CHANNELS` | Yes | Comma-separated channel IDs (e.g., `C123,C456,C789`) |
+| `LOG_LEVEL` | No | Logging level: `debug`, `info`, `warn`, `error` (default: `info`) |
+
+### Monitored Channels
+
+To add/remove channels:
+
+1. Get channel IDs (right-click channel → View details)
+2. Update `SLACK_MONITOR_CHANNELS` in Vercel
+3. Invite/remove bot from channels
+4. Ask Poke to refresh connection
+
+## MCP Tools
+
+The server exposes three tools via Model Context Protocol:
+
+### 1. get_slack_messages
+
+Fetches recent messages from monitored channels.
+
+**Parameters:**
+- `channel_id` (optional) - Specific channel to fetch from
+- `hours` (optional) - Lookback period in hours (default: 24)
+- `limit` (optional) - Max messages to return (default: 50)
+
+**Returns:** Array of enriched messages with user and channel context
+
+### 2. get_mentions
+
+Finds messages where a specific user is @mentioned.
+
+**Parameters:**
+- `user_id` (required) - Slack user ID to search for
+- `hours` (optional) - Lookback period in hours (default: 24)
+
+**Returns:** Array of messages containing @mentions
+
+### 3. get_thread
+
+Retrieves complete thread conversation.
+
+**Parameters:**
+- `channel_id` (required) - Channel containing the thread
+- `thread_ts` (required) - Thread timestamp
+
+**Returns:** All messages in the thread with full context
+
+## Message Format
+
+Messages are returned in this structure:
+
+```json
+{
+  "timestamp": "1234567890.123456",
+  "text": "Message content...",
+  "type": "message",
+  "channel": {
+    "id": "C08HALVARL0",
+    "name": "general"
+  },
+  "user": {
+    "id": "U051C2T1KTM",
+    "name": "John Doe",
+    "email": "john@example.com"
+  },
+  "is_reply": false,
+  "reactions": [
+    { "name": "thumbsup", "count": 3 }
+  ],
+  "files": [
+    { "id": "F123", "name": "document.pdf", "filetype": "pdf" }
+  ]
+}
+```
+
+## Poke Integration Tips
+
+### Optimize Filtering
+
+Tell Poke how to prioritize your Slack messages:
+
+```
+Monitor these channels:
+- #general: Company announcements (HIGH priority)
+- #path-ai: Team discussions (HIGHEST - surface @mentions and approvals)
+- #path-ai-leads: User conversations (MEDIUM - filter dev testing, surface real prospects)
+- #loops-notifications: Signups (MEDIUM - prioritize business domains)
+
+Key people: Sammy (CTO), board members
+Urgent keywords: "urgent", "approve", "review needed", "blocking"
+```
+
+### Morning Briefing
+
+Poke will batch overnight messages from your team (perfect for timezone differences):
+
+```
+Overnight Slack Activity:
+━━━━━━━━━━━━━━━━━━━━━━
+🔴 URGENT
+- @Vinay in #path-ai: "Need approval on new feature"
+
+⚠️ IMPORTANT
+- Real user conversation in #path-ai-leads
+- Board discussion in #path-ai
+
+ℹ️ FYI
+- 3 new signups in #loops-notifications
+```
+
+## Project Structure
+
+```
+v40/
+├── api/
+│   ├── health.js        # Health check endpoint
+│   └── mcp-http.js      # MCP server (main entry point)
+├── lib/
+│   └── slack-client.js  # Slack API wrapper
+├── config/
+│   └── constants.js     # Configuration validation
+├── utils/
+│   └── logger.js        # Logging utilities
+├── index.html           # Status dashboard
+├── vercel.json          # Vercel configuration
+└── package.json         # Dependencies
+```
+
+## Monitoring
+
+### Health Check
+
+Visit your health endpoint to verify the integration:
 
 ```bash
-curl https://your-vercel-app.vercel.app/api/health
+curl https://your-app.vercel.app/api/health
 ```
 
 Expected response:
@@ -148,417 +271,137 @@ Expected response:
   "status": "healthy",
   "timestamp": "2026-01-17T12:00:00.000Z",
   "configuration": {
-    "monitoredChannelsCount": 2,
-    "monitoredChannels": ["C1234567890", "C9876543210"],
-    "slackConfigured": true,
-    "pokeConfigured": true
+    "monitoredChannelsCount": 4,
+    "monitoredChannels": ["C08HALVARL0", "C0519827Y05", ...],
+    "slackConfigured": true
   }
 }
 ```
 
-### Manual Sync (Testing)
+### Dashboard
 
-You can manually trigger a sync for testing using either endpoint:
+Visit the homepage for a visual dashboard:
 
-**Option 1: Cron endpoint**
-```bash
-curl -X POST https://your-app.vercel.app/api/cron/sync \
-  -H "Authorization: Bearer your-cron-secret"
+```
+https://your-app.vercel.app/
 ```
 
-**Option 2: Trigger endpoint (for external services)**
-```bash
-curl -X POST https://your-app.vercel.app/api/trigger \
-  -H "Authorization: Bearer your-cron-secret"
-```
-
-Both endpoints perform the same function - use `/api/trigger` when setting up external cron services.
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `SLACK_BOT_TOKEN` | Yes | - | Bot User OAuth Token from Slack app |
-| `SLACK_MONITOR_CHANNELS` | Yes | - | Comma-separated channel IDs (e.g., `C123,C456`) |
-| `POKE_WEBHOOK_URL` | Yes | - | Poke webhook endpoint URL |
-| `CRON_SECRET` | Recommended | - | Secret for authenticating cron requests |
-| `POKE_API_KEY` | No | - | Bearer token for Poke authentication |
-| `LOG_LEVEL` | No | `info` | Logging level: `debug`, `info`, `warn`, `error` |
-| `NODE_ENV` | No | `production` | Environment: `development` or `production` |
-
-### Sync Frequency Options
-
-You have two options for running the integration:
-
-#### Option 1: Vercel Daily Cron (Included with Hobby Plan)
-
-Vercel Hobby plan ($20/month) includes daily cron jobs. The integration is configured to run once per day at 7:30 AM.
-
-Configured in `vercel.json`:
-```json
-{
-  "crons": [
-    {
-      "path": "/api/cron/sync",
-      "schedule": "30 7 * * *"  // Every day at 7:30 AM
-    }
-  ]
-}
-```
-
-**Pros:**
-- ✅ Included with Hobby plan (no extra cost)
-- ✅ Automatic, zero maintenance
-- ✅ Reliable Vercel infrastructure
-
-**Cons:**
-- ⚠️ Limited to once per day
-- ⚠️ Fixed schedule (7:30 AM)
-
-**Change the schedule:**
-Edit `vercel.json` and redeploy. Cron syntax: `minute hour day month dayofweek`
-
-Examples:
-- `0 9 * * *` - Every day at 9:00 AM
-- `30 14 * * *` - Every day at 2:30 PM
-- `0 9 * * 1-5` - Weekdays at 9:00 AM
-
-#### Option 2: External Trigger (For More Frequent Syncs)
-
-For syncs more than once per day, use an external cron service to trigger the `/api/trigger` endpoint.
-
-**Setup with cron-job.org (Free):**
-
-1. Sign up at https://cron-job.org
-2. Create new cron job
-3. **URL**: `https://your-app.vercel.app/api/trigger`
-4. **Method**: POST
-5. **Headers**: Add `Authorization: Bearer YOUR_CRON_SECRET`
-6. **Schedule**: Every 5 minutes, hourly, etc.
-
-**Other external services:**
-- [EasyCron](https://www.easycron.com/) - Free tier available
-- [Cronitor](https://cronitor.io/) - Monitoring + scheduling
-- [GitHub Actions](https://github.com/features/actions) - Free for public repos
-
-**Test manually:**
-```bash
-curl -X POST https://your-app.vercel.app/api/trigger \
-  -H "Authorization: Bearer your-cron-secret"
-```
-
-**Pros:**
-- ✅ Sync as frequently as needed (every 5 min, hourly, etc.)
-- ✅ Flexible scheduling
-- ✅ Free tier options available
-
-**Cons:**
-- ⚠️ Requires external service setup
-- ⚠️ One more thing to maintain
-
-### Getting Channel IDs
-
-1. Right-click any channel in Slack
-2. Select **"View channel details"**
-3. Scroll down - the Channel ID is at the bottom
-4. Format: `C1234567890` (public) or `G1234567890` (private)
-
-## Payload Format
-
-The integration sends messages to Poke in the following JSON structure:
-
-```json
-{
-  "source": "slack",
-  "channel": {
-    "id": "C1234567890",
-    "name": "general",
-    "isPrivate": false,
-    "topic": "Company-wide discussions",
-    "purpose": "Team communication"
-  },
-  "message": {
-    "timestamp": "1234567890.123456",
-    "user": {
-      "id": "U1234567890",
-      "name": "John Doe",
-      "email": "john@example.com",
-      "avatar": "https://secure.gravatar.com/avatar/...",
-      "isBot": false,
-      "isAdmin": false
-    },
-    "text": "What do you think about the new feature?",
-    "type": "message",
-    "isReply": false,
-    "attachments": [],
-    "files": [],
-    "reactions": [
-      {
-        "name": "thumbsup",
-        "count": 3,
-        "users": ["U123", "U456", "U789"]
-      }
-    ]
-  },
-  "metadata": {
-    "polledAt": "2026-01-17T12:00:00.000Z",
-    "integrationVersion": "1.0.0"
-  }
-}
-```
-
-## Local Development
-
-### Running Locally
-
-```bash
-# Install dependencies
-npm install
-
-# Copy and configure environment
-cp .env.example .env
-# Edit .env with your credentials
-
-# Start Vercel dev server
-npm run dev
-```
-
-The server runs at `http://localhost:3000`
-
-### Testing the Cron Function
-
-With Vercel dev running, trigger the sync manually:
-
-```bash
-curl -X POST http://localhost:3000/api/cron/sync \
-  -H "Authorization: Bearer your-cron-secret"
-```
-
-Check the response for sync results:
-```json
-{
-  "success": true,
-  "summary": {
-    "channelsPolled": 2,
-    "totalMessages": 5,
-    "messagesSent": 5,
-    "errors": 0
-  },
-  "duration": 1523
-}
-```
-
-## State Management
-
-The integration tracks the last processed timestamp for each channel in `/tmp/slack-poke-state.json`. This file:
-
-- Persists across function invocations (within the same instance)
-- Resets on cold starts (new Vercel instance)
-- Prevents duplicate message processing
-- Defaults to 10-minute lookback on first run
-
-### Production State Management
-
-For production with multiple Vercel instances, consider upgrading to a distributed state store:
-
-**Option 1: Vercel KV (Recommended)**
-```bash
-npm install @vercel/kv
-```
-
-**Option 2: Vercel Postgres**
-```bash
-npm install @vercel/postgres
-```
-
-**Option 3: External Redis**
-Use any Redis provider (Upstash, Redis Cloud, etc.)
-
-## Troubleshooting
-
-### Messages not being fetched
-
-1. **Check bot is in channel**: Invite with `/invite @YourBot`
-2. **Verify channel IDs**: Ensure `SLACK_MONITOR_CHANNELS` is correct
-3. **Check Vercel logs**: Run `vercel logs` to see errors
-4. **Review OAuth scopes**: Ensure `channels:history` scope is granted
-
-### Cron not triggering
-
-1. **Verify Vercel plan**: Cron requires Hobby or Pro plan
-2. **Check vercel.json**: Ensure `crons` array is configured
-3. **View cron logs**: Check Vercel dashboard → Deployments → Cron Logs
-4. **Test manually**: Use curl to trigger `/api/cron/sync`
-
-### Messages sent to Poke but not appearing
-
-1. **Check Poke endpoint**: Test with `curl -X POST <POKE_WEBHOOK_URL>`
-2. **Verify API key**: Ensure `POKE_API_KEY` matches Poke's expectations
-3. **Check payload format**: Review Poke's webhook documentation
-4. **Review error logs**: Look for retry failures in Vercel logs
-
-### Duplicate messages
-
-1. **State file reset**: Happens on cold starts (normal behavior)
-2. **Multiple instances**: Upgrade to distributed state (Vercel KV)
-3. **Clock skew**: Ensure system time is synchronized
-
-### Health check fails
-
-- Indicates missing environment variables
-- Check Vercel environment configuration: `vercel env ls`
-- Redeploy after fixing: `vercel --prod`
-
-## Security
-
-### Best Practices
-
-- ✅ **Never commit** `.env` to version control (already in `.gitignore`)
-- ✅ **Set CRON_SECRET** to prevent unauthorized cron triggers
-- ✅ **Rotate secrets** regularly (especially if exposed)
-- ✅ **Use environment variables** for all secrets
-- ✅ **Enable HTTPS only** (enforced by Vercel)
-- ✅ **Monitor logs** for suspicious activity
-
-### Cron Authentication
-
-The cron endpoint (`/api/cron/sync`) is protected by a secret token:
-
-```javascript
-// Request must include Authorization header
-Authorization: Bearer your-cron-secret
-```
-
-Set `CRON_SECRET` in Vercel environment variables. Without it, the endpoint is unprotected.
-
-## Monitoring
+Shows:
+- MCP server status
+- Number of monitored channels
+- Slack connection status
+- Available MCP tools
 
 ### Vercel Logs
 
-View real-time logs:
+Monitor server activity:
 
 ```bash
 vercel logs --follow
 ```
 
-View recent logs:
+## Troubleshooting
 
-```bash
-vercel logs
-```
+### Messages not appearing in Poke
 
-### Cron Logs
+1. **Check Poke integration status** - Refresh connection in Poke settings
+2. **Verify bot is in channels** - `/invite @YourBot` in each channel
+3. **Check Vercel logs** - `vercel logs` for errors
+4. **Test health endpoint** - Should return `"status": "healthy"`
 
-Check cron execution history in Vercel dashboard:
-1. Go to your project
-2. Click "Deployments"
-3. Select "Cron Logs" tab
+### "Bot is not a member of channel" error
 
-### Health Endpoint
-
-Monitor service health:
-
-```bash
-curl https://your-app.vercel.app/api/health | jq
-```
-
-### Metrics to Track
-
-- Messages processed per sync
-- Poke webhook success/failure rate
-- Sync duration (should be under 10 seconds)
-- State file age (time since last sync)
-
-## Limitations
-
-### Current Limitations
-
-- **File-based state**: Resets on cold starts
-  - For production, upgrade to Vercel KV or Postgres
-- **Message limit**: Fetches up to 1000 messages per sync per channel
-- **Rate limits**: Subject to Slack API tier limits (1-100 requests/minute)
-- **Cron frequency**: Vercel minimum is 1 minute
-
-### Future Enhancements
-
-- [ ] Vercel KV for distributed state management
-- [ ] Support for private channels and DMs
-- [ ] Pagination for channels with >1000 messages
-- [ ] Admin dashboard for configuration
-- [ ] Batch webhook delivery (if Poke supports it)
-- [ ] Message filtering rules (exclude bots, system messages, etc.)
-- [ ] Per-channel sync frequencies
-
-## Project Structure
+The bot hasn't been invited to the channel:
 
 ```
-slack-poke-integration/
-├── api/                      # Vercel serverless functions
-│   ├── cron/
-│   │   └── sync.js          # Scheduled sync function (main entry point)
-│   └── health.js            # Health check endpoint
-├── lib/                      # Core business logic
-│   ├── slack-client.js      # Slack API wrapper
-│   ├── message-poller.js    # Message fetching and formatting
-│   ├── poke-client.js       # Poke webhook client
-│   └── state-manager.js     # Timestamp tracking
-├── utils/
-│   └── logger.js            # Structured logging
-├── config/
-│   └── constants.js         # Configuration validation
-├── .env.example             # Environment template
-├── vercel.json              # Vercel deployment + cron config
-├── package.json             # Dependencies and scripts
-└── README.md                # This file
+/invite @YourBotName
 ```
 
-## Cost Estimates
+in the Slack channel.
 
-### Vercel Pricing (Hobby Plan - $20/month)
+### Poke not checking frequently enough
 
-- Cron: Included (up to 10 cron jobs)
-- Function invocations: 100GB-hours included
-- Bandwidth: 100GB included
-- KV (optional): $0.20 per 100k reads
+Poke controls checking frequency. You can:
+- Ask Poke explicitly: "Check my Slack messages now"
+- Configure Poke's checking preferences
+- Use @mentions and urgent keywords for immediate alerts
 
-### Expected Usage
+### Environment variables not updating
 
-With 5-minute sync and 2 channels:
-- Cron executions: ~8,640/month (well within limits)
-- Function duration: ~2-5 seconds per sync
-- Bandwidth: Minimal (JSON payloads only)
+After changing environment variables in Vercel:
 
-**Estimated cost**: $20/month (Hobby plan)
+1. Trigger a new deployment (push a commit)
+2. Or redeploy manually in Vercel dashboard
+
+## Security
+
+- ✅ **No webhooks** - Pull-based MCP architecture (no exposed endpoints)
+- ✅ **Slack OAuth** - Secure token-based authentication
+- ✅ **Environment variables** - All secrets stored securely in Vercel
+- ✅ **HTTPS only** - Enforced by Vercel
+- ✅ **Minimal permissions** - Bot only has read access to invited channels
+
+## Cost
+
+**Free** with Vercel Hobby plan ($0/month):
+- Unlimited function invocations
+- Serverless MCP server
+- Zero infrastructure management
+
+**Optional:**
+- Vercel Pro ($20/month) - For team features
+- Poke subscription ($20/month) - For AI inbox features
+
+## Use Cases
+
+### CEO Managing Remote Team
+
+- Monitor team channels across timezones
+- Never miss @mentions while sleeping
+- Get AI-filtered summaries in morning briefing
+- Respond to urgent items via iMessage
+
+### Customer Success
+
+- Track support channels for escalations
+- Monitor customer feedback channels
+- Get notified of VIP customer mentions
+- Surface high-priority tickets
+
+### Product Team
+
+- Watch user feedback channels
+- Track bug reports and feature requests
+- Monitor beta tester conversations
+- Filter signal from noise automatically
 
 ## Contributing
 
-Contributions welcome! Please:
+Contributions welcome! This is a personal project but open to improvements.
 
 1. Fork the repository
 2. Create a feature branch
-3. Make your changes with tests
+3. Make your changes
 4. Submit a pull request
 
 ## License
 
-MIT License - see LICENSE file for details
+MIT License - feel free to use and modify for your own needs.
 
 ## Support
 
-For issues or questions:
-
-1. Check the [Troubleshooting](#troubleshooting) section
-2. Review [Vercel logs](#vercel-logs)
-3. Check Slack app configuration
-4. Open an issue with detailed error logs
+- **Issues**: https://github.com/vinaylp/v40/issues
+- **Poke**: https://poke.com
+- **Slack API**: https://api.slack.com/docs
 
 ## Credits
 
 Built with:
+- [Model Context Protocol](https://modelcontextprotocol.io/)
 - [Slack Web API](https://api.slack.com/web)
 - [Vercel Serverless Functions](https://vercel.com/docs/functions)
-- [Vercel Cron Jobs](https://vercel.com/docs/cron-jobs)
-- Node.js
-# Trigger redeploy for environment variable update
+- [Poke](https://poke.com) - AI-powered inbox
+
+---
+
+**Live Example**: https://poke-slack.vercel.app/

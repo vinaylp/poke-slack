@@ -66,9 +66,7 @@ module.exports = async (req, res) => {
       configuration: {
         monitoredChannelsCount: monitoredChannels.length,
         monitoredChannels: monitoredChannels, // Channel IDs are not sensitive
-        slackConfigured: !!process.env.SLACK_BOT_TOKEN,
-        pokeConfigured: !!process.env.POKE_WEBHOOK_URL,
-        authenticationEnabled: !!process.env.POKE_API_KEY
+        slackConfigured: !!process.env.SLACK_BOT_TOKEN
       },
 
       // Uptime information (only meaningful in long-running containers)
