@@ -58,8 +58,8 @@ Poke pulls Slack messages:
 ### 1. Clone and Install
 
 ```bash
-git clone https://github.com/vinaylp/v40.git
-cd v40
+git clone https://github.com/vinaylp/poke-slack.git
+cd poke-slack
 npm install
 ```
 
@@ -390,7 +390,7 @@ MIT License - feel free to use and modify for your own needs.
 
 ## Support
 
-- **Issues**: https://github.com/vinaylp/v40/issues
+- **Issues**: https://github.com/vinaylp/poke-slack/issues
 - **Poke**: https://poke.com
 - **Slack API**: https://api.slack.com/docs
 
