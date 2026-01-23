@@ -221,11 +221,11 @@ Tell Poke how to prioritize your Slack messages:
 ```
 Monitor these channels:
 - #general: Company announcements (HIGH priority)
-- #path-ai: Team discussions (HIGHEST - surface @mentions and approvals)
-- #path-ai-leads: User conversations (MEDIUM - filter dev testing, surface real prospects)
-- #loops-notifications: Signups (MEDIUM - prioritize business domains)
+- #engineering: Team discussions (HIGHEST - surface @mentions and approvals)
+- #sales: Customer conversations (MEDIUM - filter noise, surface real prospects)
+- #notifications: System alerts (MEDIUM - prioritize important events)
 
-Key people: Sammy (CTO), board members
+Key people: CTO, board members, leadership team
 Urgent keywords: "urgent", "approve", "review needed", "blocking"
 ```
 
@@ -237,14 +237,14 @@ Poke will batch overnight messages from your team (perfect for timezone differen
 Overnight Slack Activity:
 ━━━━━━━━━━━━━━━━━━━━━━
 🔴 URGENT
-- @Vinay in #path-ai: "Need approval on new feature"
+- @john in #engineering: "Need approval on new feature"
 
 ⚠️ IMPORTANT
-- Real user conversation in #path-ai-leads
-- Board discussion in #path-ai
+- Real user conversation in #sales
+- Board discussion in #general
 
 ℹ️ FYI
-- 3 new signups in #loops-notifications
+- 3 new signups in #notifications
 ```
 
 ## Project Structure
@@ -384,7 +384,7 @@ For detailed security documentation, see [SECURITY.md](./SECURITY.md).
 
 **Optional:**
 - Vercel Pro ($20/month) - For team features
-- Poke subscription ($20/month) - For AI inbox features
+- Poke subscription - Pricing varies based on usage
 
 ## Use Cases
 
