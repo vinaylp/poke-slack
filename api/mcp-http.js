@@ -198,7 +198,8 @@ module.exports = async (req, res) => {
             },
             serverInfo: {
               name: 'slack-integration',
-              version: '1.0.0'
+              version: '1.0.0',
+              icon: 'https://a.slack-edge.com/80588/marketing/img/icons/icon_slack_hash_colored.png'
             }
           }
         });
