@@ -11,10 +11,11 @@ This MCP server acts as a bridge between Slack and Poke, allowing Poke's AI to i
 - **MCP Protocol** - Modern pull-based integration using Model Context Protocol
 - **On-Demand Fetching** - Poke pulls messages when needed (no polling or webhooks)
 - **Multi-Channel Monitoring** - Monitor multiple Slack channels simultaneously
-- **Rich Context** - Enriches messages with user info (name, email, avatar) and channel context
+- **Rich Context** - Enriches messages with user info and channel context
 - **Smart Filtering** - Poke's AI learns to surface important messages and filter noise
 - **Thread-Aware** - Retrieves complete thread conversations with full context
 - **Serverless** - Deployed on Vercel with zero infrastructure management
+- **Secure** - Bearer token authentication, rate limiting, input validation
 
 ## Architecture
 
@@ -84,9 +85,13 @@ npm install -g vercel
 # Login to Vercel
 vercel login
 
+# Generate a secure auth token
+openssl rand -base64 32
+
 # Set environment variables
 vercel env add SLACK_BOT_TOKEN        # Your Bot OAuth Token
 vercel env add SLACK_MONITOR_CHANNELS # Comma-separated channel IDs (e.g., C123,C456)
+vercel env add MCP_AUTH_TOKEN         # The secure token you generated
 
 # Deploy to production
 vercel --prod
@@ -117,8 +122,10 @@ In each monitored channel, type:
 4. Enter:
    - **Name**: `Slack`
    - **Server URL**: `https://your-app.vercel.app/api/mcp-http`
-   - **API Key**: Leave empty
+   - **API Key**: Your `MCP_AUTH_TOKEN` value
 5. Click **"Create Integration"**
+
+> **Note**: The server requires Bearer token authentication. Poke should send the token in the `Authorization: Bearer <token>` header.
 
 ## Configuration
 
@@ -128,6 +135,10 @@ In each monitored channel, type:
 |----------|----------|-------------|
 | `SLACK_BOT_TOKEN` | Yes | Bot User OAuth Token from Slack app |
 | `SLACK_MONITOR_CHANNELS` | Yes | Comma-separated channel IDs (e.g., `C123,C456,C789`) |
+| `MCP_AUTH_TOKEN` | Yes | API authentication token (generate with `openssl rand -base64 32`) |
+| `INCLUDE_USER_EMAILS` | No | Include user emails in responses (default: `false`) |
+| `RATE_LIMIT_MAX` | No | Max requests per minute (default: `60`) |
+| `RATE_LIMIT_WINDOW_MS` | No | Rate limit window in ms (default: `60000`) |
 | `LOG_LEVEL` | No | Logging level: `debug`, `info`, `warn`, `error` (default: `info`) |
 
 ### Monitored Channels
@@ -189,8 +200,7 @@ Messages are returned in this structure:
   },
   "user": {
     "id": "U051C2T1KTM",
-    "name": "John Doe",
-    "email": "john@example.com"
+    "name": "John Doe"
   },
   "is_reply": false,
   "reactions": [
@@ -272,10 +282,27 @@ Expected response:
   "timestamp": "2026-01-17T12:00:00.000Z",
   "configuration": {
     "monitoredChannelsCount": 4,
-    "monitoredChannels": ["C08HALVARL0", "C0519827Y05", ...],
-    "slackConfigured": true
+    "slackConfigured": true,
+    "authConfigured": true
   }
 }
+```
+
+### Test Authentication
+
+Verify the API requires authentication:
+
+```bash
+# Should return 401 Unauthorized
+curl -X POST https://your-app.vercel.app/api/mcp-http \
+  -H "Content-Type: application/json" \
+  -d '{"method": "tools/list", "id": 1}'
+
+# Should return 200 OK with your token
+curl -X POST https://your-app.vercel.app/api/mcp-http \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_MCP_AUTH_TOKEN" \
+  -d '{"method": "tools/list", "id": 1}'
 ```
 
 ### Dashboard
@@ -335,11 +362,18 @@ After changing environment variables in Vercel:
 
 ## Security
 
-- ✅ **No webhooks** - Pull-based MCP architecture (no exposed endpoints)
-- ✅ **Slack OAuth** - Secure token-based authentication
-- ✅ **Environment variables** - All secrets stored securely in Vercel
-- ✅ **HTTPS only** - Enforced by Vercel
-- ✅ **Minimal permissions** - Bot only has read access to invited channels
+This server implements multiple security layers:
+
+- ✅ **Bearer Token Authentication** - All API requests require `Authorization: Bearer <token>`
+- ✅ **Rate Limiting** - Prevents abuse (60 requests/minute by default)
+- ✅ **Input Validation** - All parameters validated with Zod schemas
+- ✅ **Channel Access Control** - Only monitored channels are accessible
+- ✅ **Privacy Controls** - User emails disabled by default
+- ✅ **Sanitized Errors** - No internal details leaked in error messages
+- ✅ **HTTPS Only** - Enforced by Vercel
+- ✅ **Timing-Safe Auth** - Prevents timing attacks on token comparison
+
+For detailed security documentation, see [SECURITY.md](./SECURITY.md).
 
 ## Cost
 
