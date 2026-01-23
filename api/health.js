@@ -62,11 +62,12 @@ module.exports = async (req, res) => {
         platform: process.platform
       },
 
-      // Configuration status (without exposing secrets)
+      // Configuration status (without exposing secrets or channel IDs)
       configuration: {
         monitoredChannelsCount: monitoredChannels.length,
-        monitoredChannels: monitoredChannels, // Channel IDs are not sensitive
-        slackConfigured: !!process.env.SLACK_BOT_TOKEN
+        // Removed: monitoredChannels - channel IDs should not be public
+        slackConfigured: !!process.env.SLACK_BOT_TOKEN,
+        authConfigured: !!process.env.MCP_AUTH_TOKEN
       },
 
       // Uptime information (only meaningful in long-running containers)

@@ -4,21 +4,154 @@
  * This endpoint implements a simplified Model Context Protocol (MCP) over HTTP
  * that works with Vercel's serverless architecture.
  *
- * Poke can call this endpoint to get Slack messages using simple HTTP POST requests.
+ * SECURITY FEATURES:
+ * - Bearer token authentication (MCP_AUTH_TOKEN)
+ * - Rate limiting per IP
+ * - Input validation with Zod
+ * - Channel access restrictions
+ * - Sanitized error messages
  *
  * Endpoint: /api/mcp-http
  * Protocol: JSON-RPC 2.0 over HTTP
  */
 
+const { z } = require('zod');
 const SlackClient = require('../lib/slack-client');
-const { getMonitoredChannels } = require('../config/constants');
+const { getMonitoredChannels, getMcpAuthToken, getRateLimitConfig, includeUserEmails } = require('../config/constants');
 const logger = require('../utils/logger');
+
+// ============================================================================
+// RATE LIMITING
+// ============================================================================
+
+// In-memory rate limit store (resets on cold start, which is acceptable for serverless)
+const rateLimitStore = new Map();
+
+/**
+ * Check if request should be rate limited
+ * @param {string} clientId - Client identifier (IP or token hash)
+ * @returns {Object} { allowed: boolean, remaining: number, resetIn: number }
+ */
+function checkRateLimit(clientId) {
+  const config = getRateLimitConfig();
+  const now = Date.now();
+
+  let record = rateLimitStore.get(clientId);
+
+  // Clean up old record or create new one
+  if (!record || now > record.windowStart + config.windowMs) {
+    record = { windowStart: now, count: 0 };
+  }
+
+  record.count++;
+  rateLimitStore.set(clientId, record);
+
+  const remaining = Math.max(0, config.maxRequests - record.count);
+  const resetIn = Math.max(0, record.windowStart + config.windowMs - now);
+
+  return {
+    allowed: record.count <= config.maxRequests,
+    remaining,
+    resetIn
+  };
+}
+
+// ============================================================================
+// INPUT VALIDATION SCHEMAS
+// ============================================================================
+
+const GetSlackMessagesSchema = z.object({
+  channel_id: z.string().regex(/^[CG][A-Z0-9]+$/, 'Invalid channel ID format').optional(),
+  hours: z.number().min(1).max(720).default(24),  // Max 30 days
+  limit: z.number().min(1).max(200).default(50)   // Cap at 200
+}).optional().default({});
+
+const GetMentionsSchema = z.object({
+  user_id: z.string().regex(/^U[A-Z0-9]+$/, 'Invalid user ID format'),
+  hours: z.number().min(1).max(720).default(24)
+});
+
+const GetThreadSchema = z.object({
+  channel_id: z.string().regex(/^[CG][A-Z0-9]+$/, 'Invalid channel ID format'),
+  thread_ts: z.string().regex(/^\d+\.\d+$/, 'Invalid thread timestamp format')
+});
+
+// ============================================================================
+// AUTHENTICATION
+// ============================================================================
+
+/**
+ * Validate bearer token authentication
+ * @param {Object} req - Request object
+ * @returns {Object} { authenticated: boolean, error?: string }
+ */
+function authenticateRequest(req) {
+  const authHeader = req.headers.authorization;
+  const expectedToken = getMcpAuthToken();
+
+  if (!expectedToken) {
+    logger.error('MCP_AUTH_TOKEN not configured');
+    return { authenticated: false, error: 'Server misconfiguration' };
+  }
+
+  if (!authHeader) {
+    return { authenticated: false, error: 'Missing Authorization header' };
+  }
+
+  if (!authHeader.startsWith('Bearer ')) {
+    return { authenticated: false, error: 'Invalid Authorization format. Expected: Bearer <token>' };
+  }
+
+  const providedToken = authHeader.slice(7);
+
+  // Use timing-safe comparison to prevent timing attacks
+  if (providedToken.length !== expectedToken.length) {
+    return { authenticated: false, error: 'Invalid token' };
+  }
+
+  // Simple constant-time comparison
+  let mismatch = 0;
+  for (let i = 0; i < providedToken.length; i++) {
+    mismatch |= providedToken.charCodeAt(i) ^ expectedToken.charCodeAt(i);
+  }
+
+  if (mismatch !== 0) {
+    return { authenticated: false, error: 'Invalid token' };
+  }
+
+  return { authenticated: true };
+}
+
+// ============================================================================
+// MAIN HANDLER
+// ============================================================================
 
 /**
  * Handle MCP JSON-RPC requests over HTTP
  */
 module.exports = async (req, res) => {
-  logger.info('MCP HTTP endpoint called');
+  // Get client identifier for rate limiting
+  const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+                   req.headers['x-real-ip'] ||
+                   'unknown';
+
+  // Check rate limit BEFORE authentication (prevents auth brute force)
+  const rateLimit = checkRateLimit(clientIp);
+
+  // Set rate limit headers
+  res.setHeader('X-RateLimit-Remaining', rateLimit.remaining);
+  res.setHeader('X-RateLimit-Reset', Math.ceil(rateLimit.resetIn / 1000));
+
+  if (!rateLimit.allowed) {
+    logger.warn(`Rate limit exceeded for ${clientIp}`);
+    return res.status(429).json({
+      jsonrpc: '2.0',
+      error: {
+        code: -32000,
+        message: 'Rate limit exceeded. Please try again later.'
+      }
+    });
+  }
 
   // Only accept POST requests
   if (req.method !== 'POST') {
@@ -26,8 +159,21 @@ module.exports = async (req, res) => {
       jsonrpc: '2.0',
       error: {
         code: -32600,
-        message: 'Method not allowed - use POST',
-      },
+        message: 'Method not allowed - use POST'
+      }
+    });
+  }
+
+  // Authenticate request
+  const auth = authenticateRequest(req);
+  if (!auth.authenticated) {
+    logger.warn(`Authentication failed for ${clientIp}: ${auth.error}`);
+    return res.status(401).json({
+      jsonrpc: '2.0',
+      error: {
+        code: -32600,
+        message: auth.error
+      }
     });
   }
 
@@ -37,7 +183,7 @@ module.exports = async (req, res) => {
   try {
     const { method, params, id } = req.body;
 
-    logger.info(`MCP request: ${method}`, { params });
+    logger.info(`MCP request: ${method}`);
 
     // Handle different MCP methods
     switch (method) {
@@ -48,13 +194,13 @@ module.exports = async (req, res) => {
           result: {
             protocolVersion: '2024-11-05',
             capabilities: {
-              tools: {},
+              tools: {}
             },
             serverInfo: {
               name: 'slack-integration',
-              version: '1.0.0',
-            },
-          },
+              version: '1.0.0'
+            }
+          }
         });
 
       case 'tools/list':
@@ -71,20 +217,20 @@ module.exports = async (req, res) => {
                   properties: {
                     channel_id: {
                       type: 'string',
-                      description: 'Optional: Specific channel ID to fetch from. If not provided, fetches from all monitored channels.',
+                      description: 'Optional: Specific channel ID to fetch from (must be a monitored channel). If not provided, fetches from all monitored channels.'
                     },
                     hours: {
                       type: 'number',
-                      description: 'Number of hours to look back (default: 24)',
-                      default: 24,
+                      description: 'Number of hours to look back (default: 24, max: 720)',
+                      default: 24
                     },
                     limit: {
                       type: 'number',
-                      description: 'Maximum number of messages to return (default: 50)',
-                      default: 50,
-                    },
-                  },
-                },
+                      description: 'Maximum number of messages to return (default: 50, max: 200)',
+                      default: 50
+                    }
+                  }
+                }
               },
               {
                 name: 'get_mentions',
@@ -94,37 +240,37 @@ module.exports = async (req, res) => {
                   properties: {
                     user_id: {
                       type: 'string',
-                      description: 'Slack user ID to find mentions for (e.g., U051C2T1KTM)',
+                      description: 'Slack user ID to find mentions for (e.g., U051C2T1KTM)'
                     },
                     hours: {
                       type: 'number',
-                      description: 'Number of hours to look back (default: 24)',
-                      default: 24,
-                    },
+                      description: 'Number of hours to look back (default: 24, max: 720)',
+                      default: 24
+                    }
                   },
-                  required: ['user_id'],
-                },
+                  required: ['user_id']
+                }
               },
               {
                 name: 'get_thread',
-                description: 'Get all messages in a specific Slack thread conversation.',
+                description: 'Get all messages in a specific Slack thread conversation (must be in a monitored channel).',
                 inputSchema: {
                   type: 'object',
                   properties: {
                     channel_id: {
                       type: 'string',
-                      description: 'Channel ID where the thread exists',
+                      description: 'Channel ID where the thread exists (must be a monitored channel)'
                     },
                     thread_ts: {
                       type: 'string',
-                      description: 'Thread timestamp (ts) of the parent message',
-                    },
+                      description: 'Thread timestamp (ts) of the parent message'
+                    }
                   },
-                  required: ['channel_id', 'thread_ts'],
-                },
-              },
-            ],
-          },
+                  required: ['channel_id', 'thread_ts']
+                }
+              }
+            ]
+          }
         });
 
       case 'tools/call':
@@ -132,7 +278,7 @@ module.exports = async (req, res) => {
         return res.status(200).json({
           jsonrpc: '2.0',
           id,
-          result: toolResult,
+          result: toolResult
         });
 
       default:
@@ -141,24 +287,29 @@ module.exports = async (req, res) => {
           id,
           error: {
             code: -32601,
-            message: `Method not found: ${method}`,
-          },
+            message: 'Method not found'
+          }
         });
     }
   } catch (error) {
     logger.error('MCP HTTP error:', error);
+    // Return sanitized error message
     return res.status(500).json({
       jsonrpc: '2.0',
       error: {
         code: -32603,
-        message: error.message,
-      },
+        message: 'Internal server error'
+      }
     });
   }
 };
 
+// ============================================================================
+// TOOL HANDLERS
+// ============================================================================
+
 /**
- * Handle tool execution
+ * Handle tool execution with validation
  */
 async function handleToolCall(params) {
   const { name, arguments: args } = params;
@@ -175,31 +326,54 @@ async function handleToolCall(params) {
         return await handleGetThread(args);
 
       default:
-        throw new Error(`Unknown tool: ${name}`);
+        return {
+          content: [{ type: 'text', text: 'Unknown tool' }],
+          isError: true
+        };
     }
   } catch (error) {
     logger.error(`Error executing tool ${name}:`, error);
+
+    // Return user-friendly error without exposing internals
+    const userMessage = error.isValidationError
+      ? error.message
+      : 'An error occurred while processing your request';
+
     return {
-      content: [
-        {
-          type: 'text',
-          text: `Error: ${error.message}`,
-        },
-      ],
-      isError: true,
+      content: [{ type: 'text', text: `Error: ${userMessage}` }],
+      isError: true
     };
   }
 }
 
 /**
- * Get recent Slack messages
+ * Get recent Slack messages with validation
  */
 async function handleGetSlackMessages(args) {
-  const { channel_id, hours = 24, limit = 50 } = args || {};
-  const slack = new SlackClient();
+  // Validate input
+  const parseResult = GetSlackMessagesSchema.safeParse(args);
+  if (!parseResult.success) {
+    const error = new Error(parseResult.error.errors[0]?.message || 'Invalid input');
+    error.isValidationError = true;
+    throw error;
+  }
 
-  // Determine which channels to fetch from
-  const channels = channel_id ? [channel_id] : getMonitoredChannels();
+  const { channel_id, hours, limit } = parseResult.data;
+  const slack = new SlackClient();
+  const monitoredChannels = getMonitoredChannels();
+
+  // Validate channel access - ONLY allow monitored channels
+  let channels;
+  if (channel_id) {
+    if (!monitoredChannels.includes(channel_id)) {
+      const error = new Error('Channel not in monitored list');
+      error.isValidationError = true;
+      throw error;
+    }
+    channels = [channel_id];
+  } else {
+    channels = monitoredChannels;
+  }
 
   // Calculate timestamp for lookback period
   const lookbackMs = hours * 60 * 60 * 1000;
@@ -209,21 +383,18 @@ async function handleGetSlackMessages(args) {
 
   for (const channelId of channels) {
     try {
-      // Fetch messages from Slack
       const result = await slack.client.conversations.history({
         channel: channelId,
         oldest: oldestTimestamp,
-        limit: Math.min(limit, 1000),
+        limit: Math.min(limit, 200)
       });
 
       if (!result.messages || result.messages.length === 0) {
         continue;
       }
 
-      // Get channel info
       const channel = await slack.getChannelInfo(channelId);
 
-      // Format messages with user enrichment
       for (const msg of result.messages.slice(0, limit)) {
         const formattedMessage = await formatMessage(slack, msg, channel);
         allMessages.push(formattedMessage);
@@ -242,22 +413,26 @@ async function handleGetSlackMessages(args) {
         type: 'text',
         text: JSON.stringify({
           total: allMessages.length,
-          messages: allMessages.slice(0, limit),
-        }, null, 2),
-      },
-    ],
+          messages: allMessages.slice(0, limit)
+        }, null, 2)
+      }
+    ]
   };
 }
 
 /**
- * Get messages where user is mentioned
+ * Get messages where user is mentioned with validation
  */
 async function handleGetMentions(args) {
-  const { user_id, hours = 24 } = args || {};
-
-  if (!user_id) {
-    throw new Error('user_id is required');
+  // Validate input
+  const parseResult = GetMentionsSchema.safeParse(args);
+  if (!parseResult.success) {
+    const error = new Error(parseResult.error.errors[0]?.message || 'Invalid input');
+    error.isValidationError = true;
+    throw error;
   }
+
+  const { user_id, hours } = parseResult.data;
 
   const slack = new SlackClient();
   const channels = getMonitoredChannels();
@@ -272,15 +447,16 @@ async function handleGetMentions(args) {
       const result = await slack.client.conversations.history({
         channel: channelId,
         oldest: oldestTimestamp,
-        limit: 1000,
+        limit: 1000
       });
 
       if (!result.messages || result.messages.length === 0) {
         continue;
       }
 
-      // Filter messages that mention the user
-      const mentionPattern = new RegExp(`<@${user_id}>`);
+      // Filter messages that mention the user (escape user_id for regex safety)
+      const escapedUserId = user_id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const mentionPattern = new RegExp(`<@${escapedUserId}>`);
       const mentionedMessages = result.messages.filter(msg =>
         msg.text && mentionPattern.test(msg.text)
       );
@@ -310,30 +486,41 @@ async function handleGetMentions(args) {
         text: JSON.stringify({
           user_id,
           total: mentions.length,
-          mentions,
-        }, null, 2),
-      },
-    ],
+          mentions
+        }, null, 2)
+      }
+    ]
   };
 }
 
 /**
- * Get thread conversation
+ * Get thread conversation with validation
  */
 async function handleGetThread(args) {
-  const { channel_id, thread_ts } = args || {};
+  // Validate input
+  const parseResult = GetThreadSchema.safeParse(args);
+  if (!parseResult.success) {
+    const error = new Error(parseResult.error.errors[0]?.message || 'Invalid input');
+    error.isValidationError = true;
+    throw error;
+  }
 
-  if (!channel_id || !thread_ts) {
-    throw new Error('channel_id and thread_ts are required');
+  const { channel_id, thread_ts } = parseResult.data;
+
+  // SECURITY: Only allow threads from monitored channels
+  const monitoredChannels = getMonitoredChannels();
+  if (!monitoredChannels.includes(channel_id)) {
+    const error = new Error('Channel not in monitored list');
+    error.isValidationError = true;
+    throw error;
   }
 
   const slack = new SlackClient();
 
   try {
-    // Fetch thread replies
     const result = await slack.client.conversations.replies({
       channel: channel_id,
-      ts: thread_ts,
+      ts: thread_ts
     });
 
     if (!result.messages || result.messages.length === 0) {
@@ -341,9 +528,9 @@ async function handleGetThread(args) {
         content: [
           {
             type: 'text',
-            text: JSON.stringify({ error: 'Thread not found' }),
-          },
-        ],
+            text: JSON.stringify({ error: 'Thread not found' })
+          }
+        ]
       };
     }
 
@@ -363,10 +550,10 @@ async function handleGetThread(args) {
             channel_id,
             thread_ts,
             total: formattedMessages.length,
-            messages: formattedMessages,
-          }, null, 2),
-        },
-      ],
+            messages: formattedMessages
+          }, null, 2)
+        }
+      ]
     };
   } catch (error) {
     logger.error(`Error fetching thread ${thread_ts}:`, error);
@@ -374,8 +561,13 @@ async function handleGetThread(args) {
   }
 }
 
+// ============================================================================
+// MESSAGE FORMATTING
+// ============================================================================
+
 /**
  * Format a Slack message with user enrichment
+ * Respects INCLUDE_USER_EMAILS configuration
  */
 async function formatMessage(slack, message, channel) {
   const formatted = {
@@ -384,8 +576,8 @@ async function formatMessage(slack, message, channel) {
     type: message.subtype || 'message',
     channel: {
       id: channel.id,
-      name: channel.name,
-    },
+      name: channel.name
+    }
   };
 
   // Add user information
@@ -395,9 +587,13 @@ async function formatMessage(slack, message, channel) {
       if (user) {
         formatted.user = {
           id: user.id,
-          name: user.real_name || user.name,
-          email: user.profile?.email || null,
+          name: user.real_name || user.name
         };
+
+        // Only include email if explicitly enabled
+        if (includeUserEmails() && user.profile?.email) {
+          formatted.user.email = user.profile.email;
+        }
       }
     } catch (error) {
       logger.warn(`Failed to fetch user ${message.user}:`, error.message);
@@ -414,18 +610,18 @@ async function formatMessage(slack, message, channel) {
   if (message.reactions) {
     formatted.reactions = message.reactions.map(r => ({
       name: r.name,
-      count: r.count,
+      count: r.count
     }));
   }
 
-  // Add files
+  // Add files (metadata only, not private URLs)
   if (message.files && message.files.length > 0) {
     formatted.files = message.files.map(f => ({
       id: f.id,
       name: f.name,
       title: f.title,
-      filetype: f.filetype,
-      url: f.url_private,
+      filetype: f.filetype
+      // Removed: url: f.url_private (security risk)
     }));
   }
 

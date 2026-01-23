@@ -249,6 +249,9 @@
             <div class="mcp-endpoint">
                 https://poke-slack.vercel.app/api/mcp-http
             </div>
+            <p style="color: #166534; font-size: 12px; margin-top: 8px;">
+                <strong>Note:</strong> This endpoint requires Bearer token authentication.
+            </p>
         </div>
 
         <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 16px; border-radius: 8px; margin-bottom: 24px;">
@@ -290,6 +293,12 @@
                         <span class="status-label">Slack Connected</span>
                         <span class="badge ${data.configuration?.slackConfigured ? 'success' : 'error'}">
                             ${data.configuration?.slackConfigured ? '✓ Yes' : '✗ No'}
+                        </span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Auth Configured</span>
+                        <span class="badge ${data.configuration?.authConfigured ? 'success' : 'error'}">
+                            ${data.configuration?.authConfigured ? '✓ Yes' : '✗ No'}
                         </span>
                     </div>
                 `;

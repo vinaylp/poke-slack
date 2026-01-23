@@ -18,7 +18,8 @@ const logger = require('../utils/logger');
  */
 const REQUIRED_ENV_VARS = [
   'SLACK_BOT_TOKEN',
-  'SLACK_MONITOR_CHANNELS'
+  'SLACK_MONITOR_CHANNELS',
+  'MCP_AUTH_TOKEN'  // Required for API authentication
 ];
 
 /**
@@ -29,7 +30,9 @@ const REQUIRED_ENV_VARS = [
 const OPTIONAL_ENV_VARS = {
   LOG_LEVEL: 'info',
   NODE_ENV: 'production',
-  CRON_SECRET: null
+  INCLUDE_USER_EMAILS: 'false',  // Set to 'true' to include emails in responses
+  RATE_LIMIT_MAX: '60',          // Max requests per window
+  RATE_LIMIT_WINDOW_MS: '60000'  // Rate limit window in ms (default: 1 minute)
 };
 
 /**
@@ -121,6 +124,36 @@ function isProduction() {
   return getConfig('NODE_ENV', 'production') === 'production';
 }
 
+/**
+ * Check if user emails should be included in responses
+ *
+ * @returns {boolean} True if INCLUDE_USER_EMAILS is 'true'
+ */
+function includeUserEmails() {
+  return getConfig('INCLUDE_USER_EMAILS', 'false') === 'true';
+}
+
+/**
+ * Get the MCP authentication token
+ *
+ * @returns {string} The MCP auth token
+ */
+function getMcpAuthToken() {
+  return getConfig('MCP_AUTH_TOKEN', '');
+}
+
+/**
+ * Get rate limit configuration
+ *
+ * @returns {Object} Rate limit settings
+ */
+function getRateLimitConfig() {
+  return {
+    maxRequests: parseInt(getConfig('RATE_LIMIT_MAX', '60'), 10),
+    windowMs: parseInt(getConfig('RATE_LIMIT_WINDOW_MS', '60000'), 10)
+  };
+}
+
 // Validate configuration on module load
 // This ensures that configuration errors are caught immediately on startup
 // rather than during request processing
@@ -140,6 +173,9 @@ module.exports = {
   getMonitoredChannels,
   isDevelopment,
   isProduction,
+  includeUserEmails,
+  getMcpAuthToken,
+  getRateLimitConfig,
   REQUIRED_ENV_VARS,
   OPTIONAL_ENV_VARS
 };
